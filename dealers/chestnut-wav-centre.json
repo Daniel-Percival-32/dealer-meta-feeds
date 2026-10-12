@@ -1,0 +1,15 @@
+{
+  "name": "Chestnut WAV Centre",
+  "statuses": ["forecourt"],
+  "site": "https://www.chestnutwavcentre.co.uk",
+  "sitemap": "https://www.chestnutwavcentre.co.uk/sitemap.xml",
+  "fb_page_id": "1465537127075887",
+  "dealer_id": "chestnut-wav-centre",
+  "dealer_name": "Chestnut Motors WAV Centre",
+  "dealer_phone": "+44 1244 258058",
+  "dealer_communication_channel": "CHAT",
+  "dealer_privacy_policy_url": "https://www.chestnutwavcentre.co.uk/privacy_policy.php",
+  "address": {"addr1": "Factory Road", "addr2": "Sandycroft", "city": "Deeside", "region": "Flintshire", "postal_code": "CH5 2QJ", "country": "United Kingdom"},
+  "latitude": 53.203155,
+  "longitude": -3.007775
+}
