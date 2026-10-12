@@ -30,7 +30,7 @@ COLUMNS = [
     "mileage.value", "mileage.unit", "image", "transmission", "body_style", "vin", "price",
     "exterior_color", "state_of_vehicle", "fuel_type", "availability", "vehicle_type", "trim",
     "address", "latitude", "longitude", "dealer_id", "dealer_name", "dealer_phone",
-    "dealer_communication_channel", "dealer_privacy_policy_url",
+    "dealer_communication_channel", "dealer_privacy_policy_url", "custom_label_0",
 ]
 # Words kept exactly as written when they arrive in capitals.
 DISPLAY = {"WAV": "WAV", "MPV": "MPV", "SWB": "SWB", "MWB": "MWB", "LWB": "LWB", "XL": "XL", "XLWB": "XLWB",
@@ -263,6 +263,8 @@ def to_row(v, dealer, urls):
         "dealer_phone": dealer["dealer_phone"],
         "dealer_communication_channel": dealer["dealer_communication_channel"],
         "dealer_privacy_policy_url": dealer["dealer_privacy_policy_url"],
+        # lets an ad's product set pick exactly this feed's vehicles
+        "custom_label_0": dealer.get("custom_label_0", "cd5-live"),
     }
 
 
