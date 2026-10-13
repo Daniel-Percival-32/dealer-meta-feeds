@@ -5,7 +5,9 @@ Run:  CD5_API_KEY=... python3 build_feed.py dealers/chestnut-wav-centre.json fee
 
 The optional third file is the same vehicles shaped for Vopple's stock reader: the
 title is "Make Model Edition" (Vopple strips make and model off the front to get the
-variant, and shows the year and price separately). Nothing else differs.
+variant, and shows the year and price separately). It also leaves out any vehicle whose
+description says VAT is added for some buyers: Vopple prints a bare price, so until the
+price basis is settled those vehicles are not offered there. Nothing else differs.
 
 The column set and value conventions copy the AutoHub feed Meta accepted for this
 catalogue before the dealer moved to CD5. Safety rules:
@@ -236,7 +238,8 @@ def to_row(v, dealer, urls):
     edition = clean_edition(v.get("edition"), make, model, year)
     title = " ".join(f"{year} {make} {model} {edition}".split())[:200]
     raw_desc = v.get("description") or ""
-    if re.search(r"vat will be added", raw_desc, re.I):
+    vat_unclear = bool(re.search(r"vat will be added", raw_desc, re.I))
+    if vat_unclear:
         title = (title + " - No VAT")[:200]
     fallback = f"{year} {make} {model} {edition}. {mileage:,} miles. Wheelchair accessible vehicle."
     body, vtype = body_and_type(v)
@@ -273,6 +276,7 @@ def to_row(v, dealer, urls):
         # lets an ad's product set pick exactly this feed's vehicles
         "custom_label_0": dealer.get("custom_label_0", "cd5-live"),
         "_vopple_title": " ".join(f"{make} {model} {edition}".split())[:200],
+        "_vat_unclear": vat_unclear,
     }
 
 
@@ -333,8 +337,9 @@ def main():
         raise SystemExit(f"Refused: {len(rows)} vehicles vs {previous} last time (over half gone) — previous feed kept")
 
     write_csv(rows, out_path)
+    vat_held = [r["vehicle_id"] for r in rows if r["_vat_unclear"]]
     if vopple_path:
-        write_csv([vopple_row(r) for r in rows], vopple_path)
+        write_csv([vopple_row(r) for r in rows if not r["_vat_unclear"]], vopple_path)
 
     fed = {r["vehicle_id"] for r in rows}
     on_site_not_fed = sorted(set(sitemap) - fed)
@@ -345,6 +350,9 @@ def main():
     print(f"Links: {from_sitemap} from the sitemap, {from_last_feed} kept from the last feed, "
           f"{len(rows) - from_sitemap - from_last_feed} built from the stock number. On the website but not "
           f"in the feed (usually reserved): {len(on_site_not_fed)} {' '.join(on_site_not_fed)}")
+    if vopple_path:
+        print(f"Vopple copy: {len(rows)} complete, {len(vat_held)} left out until their VAT basis is settled "
+              f"({' '.join(vat_held) or 'none'}), {len(rows) - len(vat_held)} published.")
 
 
 if __name__ == "__main__":
