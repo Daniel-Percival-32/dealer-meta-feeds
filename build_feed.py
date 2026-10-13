@@ -10,6 +10,8 @@ catalogue before the dealer moved to CD5. Safety rules:
   * a refused or failed run exits non-zero and leaves the previous feed untouched;
   * one bad vehicle is skipped and logged, it never stops the feed;
   * links must point at the dealer's own site and photos at CD5's image hosts;
+  * a vehicle's link comes from the sitemap; if the sitemap can't be read, the link
+    already published for that vehicle is kept, so links never flip between runs;
   * purchase price and any other internal field are never written.
 """
 import csv
@@ -112,7 +114,7 @@ def site_urls(dealer):
             break
         except Exception as e:
             if attempt == 2:
-                print(f"WARNING: sitemap unavailable ({type(e).__name__}); links will be built from the stock number")
+                print(f"WARNING: sitemap unavailable ({type(e).__name__}); keeping the last feed's links, building any new ones from the stock number")
                 return {}
             time.sleep(5)
     out = {}
@@ -268,11 +270,11 @@ def to_row(v, dealer, urls):
     }
 
 
-def previous_count(path):
+def previous_feed(path):
     if not os.path.exists(path):
-        return 0
+        return []
     with open(path, encoding="utf-8", newline="") as f:
-        return sum(1 for _ in csv.DictReader(f))
+        return list(csv.DictReader(f))
 
 
 def main():
@@ -282,7 +284,12 @@ def main():
     if not key:
         raise SystemExit("CD5_API_KEY is not set")
     stock = read_stock(key, dealer["statuses"])
-    urls = site_urls(dealer)
+    sitemap = site_urls(dealer)
+    previous_rows = previous_feed(out_path)
+    # Sitemap first; otherwise the link this vehicle already has in the live feed.
+    kept = {r["vehicle_id"]: r["url"] for r in previous_rows
+            if r.get("vehicle_id") and (r.get("url") or "").startswith(dealer["site"] + "/")}
+    urls = {**kept, **sitemap}
     rows, skipped = [], []
     for v in stock:
         if v.get("website_visible") is False:
@@ -294,7 +301,7 @@ def main():
             skipped.append((str(v.get("id")), str(e) or type(e).__name__))
     rows.sort(key=lambda r: int(r["vehicle_id"]))
 
-    previous = previous_count(out_path)
+    previous = len(previous_rows)
     if not rows:
         raise SystemExit("No advertisable vehicles — previous feed kept")
     if previous and len(rows) < previous * 0.5 and os.environ.get("ALLOW_DROP") != "1":
@@ -311,12 +318,14 @@ def main():
     os.replace(tmp, out_path)
 
     fed = {r["vehicle_id"] for r in rows}
-    on_site_not_fed = sorted(set(urls) - fed)
-    built_links = sum(1 for r in rows if r["vehicle_id"] not in urls)
+    on_site_not_fed = sorted(set(sitemap) - fed)
+    from_sitemap = sum(1 for r in rows if r["vehicle_id"] in sitemap)
+    from_last_feed = sum(1 for r in rows if r["vehicle_id"] not in sitemap and r["vehicle_id"] in kept)
     print(f"Wrote {len(rows)} vehicles (previous {previous}).")
     print(f"Skipped {len(skipped)}: " + ("; ".join(f"{i} ({why})" for i, why in skipped) or "none"))
-    print(f"Links built without the sitemap: {built_links}. On the website but not in the feed "
-          f"(usually reserved): {len(on_site_not_fed)} {' '.join(on_site_not_fed)}")
+    print(f"Links: {from_sitemap} from the sitemap, {from_last_feed} kept from the last feed, "
+          f"{len(rows) - from_sitemap - from_last_feed} built from the stock number. On the website but not "
+          f"in the feed (usually reserved): {len(on_site_not_fed)} {' '.join(on_site_not_fed)}")
 
 
 if __name__ == "__main__":
