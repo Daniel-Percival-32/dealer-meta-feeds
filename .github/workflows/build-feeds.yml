@@ -2,8 +2,9 @@ name: Build Meta vehicle feeds
 
 on:
   schedule:
-    - cron: "17 * * * *"   # hourly, off the top of the hour
-    - cron: "47 * * * *"   # second slot, so one delayed or skipped GitHub run never leaves the feed stale
+    # Spare slots only: GitHub skips most of them. hourly-tick.yml is the real clock.
+    - cron: "17 * * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
     inputs:
       allow_drop:

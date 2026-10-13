@@ -1,0 +1,91 @@
+name: Hourly tick
+
+# GitHub's own cron is best-effort: on 12-13 Oct it fired 4 of about 31 slots
+# here, leaving the feed up to 5 hours old. This workflow is a self-renewing
+# clock instead. Each run starts a feed build if one is due, then waits about
+# 55 minutes in the "hourly-wait" environment (a server-side wait timer, so no
+# runner is held) and starts the next run. A run started by the clock always
+# carries on. The cron below, or a hand start, only restarts the clock if the
+# chain ever breaks; while the clock is alive it does nothing.
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      parent:
+        description: "Set by the clock itself. Leave empty."
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  build-if-due:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    outputs:
+      alive: ${{ steps.clock.outputs.alive }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Stand down if the clock is already running
+        id: clock
+        env:
+          PARENT: ${{ inputs.parent }}
+        run: |
+          if [ -n "$PARENT" ]; then
+            echo "alive=false" >> "$GITHUB_OUTPUT"
+            echo "Continuing the clock." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          others="$(gh run list --workflow hourly-tick.yml --limit 20 --json databaseId,status \
+            --jq "[.[] | select(.status != \"completed\" and .databaseId != ${GITHUB_RUN_ID})] | length")"
+          if [ "$others" -gt 0 ]; then
+            echo "alive=true" >> "$GITHUB_OUTPUT"
+            echo "The clock is already running in another run; nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "alive=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Start a feed build unless one ran in the last 45 minutes
+        if: steps.clock.outputs.alive == 'false'
+        run: |
+          last="$(gh run list --workflow build-feeds.yml --limit 20 --json createdAt,status,conclusion \
+            --jq '[.[] | select(.conclusion == "success" or .status != "completed")][0].createdAt // empty')"
+          if [ -n "$last" ]; then
+            age=$(( $(date -u +%s) - $(date -u -d "$last" +%s) ))
+            if [ "$age" -lt 2700 ]; then
+              echo "Last build started $((age / 60)) minutes ago; not due yet." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          gh workflow run build-feeds.yml
+          echo "Feed build started (last good build: ${last:-none})." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  next-tick:
+    needs: build-if-due
+    if: always() && needs.build-if-due.outputs.alive != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: hourly-wait
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Start the next tick
+        run: |
+          for attempt in 1 2 3; do
+            if gh workflow run hourly-tick.yml -f parent="$GITHUB_RUN_ID"; then
+              echo "Next tick started." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Could not start the next tick; the cron will restart the clock." | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
