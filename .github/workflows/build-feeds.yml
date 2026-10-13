@@ -29,37 +29,42 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Fetch the last published feed
+      - name: Fetch the last published feeds
         run: |
-          mkdir -p feeds
-          if git fetch -q --depth=1 origin feed 2>/dev/null \
-             && git show FETCH_HEAD:chestnut-wav-centre.csv > feeds/chestnut-wav-centre.csv; then
-            cp feeds/chestnut-wav-centre.csv "$RUNNER_TEMP/previous.csv"
-          else
-            rm -f feeds/chestnut-wav-centre.csv
-          fi
+          mkdir -p feeds "$RUNNER_TEMP/previous"
+          git fetch -q --depth=1 origin feed 2>/dev/null || true
+          for f in chestnut-wav-centre.csv chestnut-wav-centre-vopple.csv; do
+            if git show FETCH_HEAD:$f > feeds/$f 2>/dev/null; then
+              cp feeds/$f "$RUNNER_TEMP/previous/$f"
+            else
+              rm -f feeds/$f
+            fi
+          done
 
       - name: Build feed from CarDealer5 stock
         env:
           CD5_API_KEY: ${{ secrets.CD5_API_KEY_CHESTNUT }}
           ALLOW_DROP: ${{ inputs.allow_drop && '1' || '0' }}
-        run: python3 build_feed.py dealers/chestnut-wav-centre.json feeds/chestnut-wav-centre.csv | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -o pipefail
+          python3 build_feed.py dealers/chestnut-wav-centre.json \
+            feeds/chestnut-wav-centre.csv feeds/chestnut-wav-centre-vopple.csv | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Publish to the feed branch if anything changed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f "$RUNNER_TEMP/previous.csv" ] && cmp -s "$RUNNER_TEMP/previous.csv" feeds/chestnut-wav-centre.csv; then
+          if diff -rq "$RUNNER_TEMP/previous" feeds >/dev/null; then
             echo "No stock change" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           out="$(mktemp -d)"
-          cp feeds/chestnut-wav-centre.csv "$out/"
+          cp feeds/*.csv "$out/"
           cd "$out"
           git init -q -b feed
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add chestnut-wav-centre.csv
+          git add *.csv
           git commit -q -m "Chestnut WAV Centre feed"
           git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" feed
           echo "Published" | tee -a "$GITHUB_STEP_SUMMARY"

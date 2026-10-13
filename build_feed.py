@@ -1,6 +1,11 @@
 """Build a Meta (Facebook) vehicle catalogue feed from a CarDealer5 (CD5) stock API.
 
-Run:  CD5_API_KEY=... python3 build_feed.py dealers/chestnut-wav-centre.json feeds/chestnut-wav-centre.csv
+Run:  CD5_API_KEY=... python3 build_feed.py dealers/chestnut-wav-centre.json feeds/chestnut-wav-centre.csv \
+          [feeds/chestnut-wav-centre-vopple.csv]
+
+The optional third file is the same vehicles shaped for Vopple's stock reader: the
+title is "Make Model Edition" (Vopple strips make and model off the front to get the
+variant, and shows the year and price separately). Nothing else differs.
 
 The column set and value conventions copy the AutoHub feed Meta accepted for this
 catalogue before the dealer moved to CD5. Safety rules:
@@ -267,7 +272,26 @@ def to_row(v, dealer, urls):
         "dealer_privacy_policy_url": dealer["dealer_privacy_policy_url"],
         # lets an ad's product set pick exactly this feed's vehicles
         "custom_label_0": dealer.get("custom_label_0", "cd5-live"),
+        "_vopple_title": " ".join(f"{make} {model} {edition}".split())[:200],
     }
+
+
+def vopple_row(row):
+    out = dict(row)
+    out["title"] = row["_vopple_title"]
+    return out
+
+
+def write_csv(rows, path):
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=COLUMNS, quoting=csv.QUOTE_ALL, lineterminator="\n", extrasaction="ignore")
+    w.writeheader()
+    w.writerows(rows)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(buf.getvalue())
+    os.replace(tmp, path)
 
 
 def previous_feed(path):
@@ -279,6 +303,7 @@ def previous_feed(path):
 
 def main():
     dealer_path, out_path = sys.argv[1], sys.argv[2]
+    vopple_path = sys.argv[3] if len(sys.argv) > 3 else None
     dealer = json.load(open(dealer_path))
     key = os.environ.get("CD5_API_KEY", "").strip()
     if not key:
@@ -307,15 +332,9 @@ def main():
     if previous and len(rows) < previous * 0.5 and os.environ.get("ALLOW_DROP") != "1":
         raise SystemExit(f"Refused: {len(rows)} vehicles vs {previous} last time (over half gone) — previous feed kept")
 
-    buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=COLUMNS, quoting=csv.QUOTE_ALL, lineterminator="\n")
-    w.writeheader()
-    w.writerows(rows)
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    tmp = out_path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="") as f:
-        f.write(buf.getvalue())
-    os.replace(tmp, out_path)
+    write_csv(rows, out_path)
+    if vopple_path:
+        write_csv([vopple_row(r) for r in rows], vopple_path)
 
     fed = {r["vehicle_id"] for r in rows}
     on_site_not_fed = sorted(set(sitemap) - fed)

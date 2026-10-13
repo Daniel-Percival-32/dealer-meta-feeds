@@ -5,6 +5,7 @@ Public vehicle catalogue feeds for Meta (Facebook and Instagram) automotive ads.
 | Dealer | Source | Feed address (what Meta collects) |
 |---|---|---|
 | Chestnut WAV Centre | CarDealer5 stock API | `https://raw.githubusercontent.com/Daniel-Percival-32/dealer-meta-feeds/feed/chestnut-wav-centre.csv` |
+| Chestnut WAV Centre, Vopple copy | the same build; title shaped for Vopple's stock reader | `https://raw.githubusercontent.com/Daniel-Percival-32/dealer-meta-feeds/feed/chestnut-wav-centre-vopple.csv` |
 
 ## How it works
 
