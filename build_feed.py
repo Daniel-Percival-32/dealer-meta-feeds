@@ -7,7 +7,11 @@ The optional third file is the same vehicles shaped for Vopple's stock reader: t
 title is "Make Model Edition" (Vopple strips make and model off the front to get the
 variant, and shows the year and price separately). It also leaves out any vehicle whose
 description says VAT is added for some buyers: Vopple prints a bare price, so until the
-price basis is settled those vehicles are not offered there. Nothing else differs.
+price basis is settled those vehicles are not offered there. It also carries
+date_first_on_lot = CD5's created_at (date only), which Vopple's reader keeps as the
+van's arrival date on insert, so stock already on the forecourt is not announced as new.
+Dates on or before 2026-02-20 are left blank: that is when Chestnut's stock was imported
+into CD5, so those dates are import dates, not listing dates. Nothing else differs.
 
 The column set and value conventions copy the AutoHub feed Meta accepted for this
 catalogue before the dealer moved to CD5. Safety rules:
@@ -31,6 +35,8 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 API = "https://api.cd5.uk/api/v1"
 UA = "Vopple-CD5-Integration/1.0 (+https://vopple.com)"
@@ -41,6 +47,9 @@ COLUMNS = [
     "address", "latitude", "longitude", "dealer_id", "dealer_name", "dealer_phone",
     "dealer_communication_channel", "dealer_privacy_policy_url", "custom_label_0",
 ]
+VOPPLE_COLUMNS = COLUMNS + ["date_first_on_lot"]
+# CD5 created_at on or before this day is the import into CD5, not a listing date.
+IMPORT_SPIKE_LAST_DAY = date(2026, 2, 20)
 # Words kept exactly as written when they arrive in capitals.
 DISPLAY = {"WAV": "WAV", "MPV": "MPV", "SWB": "SWB", "MWB": "MWB", "LWB": "LWB", "XL": "XL", "XLWB": "XLWB",
            "TDI": "TDI", "HDI": "HDi", "BMW": "BMW", "VW": "VW", "UK": "UK", "AA": "AA", "LDV": "LDV",
@@ -277,18 +286,34 @@ def to_row(v, dealer, urls):
         "custom_label_0": dealer.get("custom_label_0", "cd5-live"),
         "_vopple_title": " ".join(f"{make} {model} {edition}".split())[:200],
         "_vat_unclear": vat_unclear,
+        "_date_first_on_lot": listing_date(v.get("created_at")),
     }
+
+
+def listing_date(raw):
+    """CD5 created_at as YYYY-MM-DD, or "" when it is not a usable listing date."""
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", (raw or "").strip())
+    if not m:
+        return ""
+    try:
+        d = date(int(m[1]), int(m[2]), int(m[3]))
+    except ValueError:
+        return ""
+    if d <= IMPORT_SPIKE_LAST_DAY or d > datetime.now(ZoneInfo("Europe/London")).date():
+        return ""
+    return d.isoformat()
 
 
 def vopple_row(row):
     out = dict(row)
     out["title"] = row["_vopple_title"]
+    out["date_first_on_lot"] = row["_date_first_on_lot"]
     return out
 
 
-def write_csv(rows, path):
+def write_csv(rows, path, columns=COLUMNS):
     buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=COLUMNS, quoting=csv.QUOTE_ALL, lineterminator="\n", extrasaction="ignore")
+    w = csv.DictWriter(buf, fieldnames=columns, quoting=csv.QUOTE_ALL, lineterminator="\n", extrasaction="ignore")
     w.writeheader()
     w.writerows(rows)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -339,7 +364,7 @@ def main():
     write_csv(rows, out_path)
     vat_held = [r["vehicle_id"] for r in rows if r["_vat_unclear"]]
     if vopple_path:
-        write_csv([vopple_row(r) for r in rows if not r["_vat_unclear"]], vopple_path)
+        write_csv([vopple_row(r) for r in rows if not r["_vat_unclear"]], vopple_path, VOPPLE_COLUMNS)
 
     fed = {r["vehicle_id"] for r in rows}
     on_site_not_fed = sorted(set(sitemap) - fed)
@@ -352,7 +377,8 @@ def main():
           f"in the feed (usually reserved): {len(on_site_not_fed)} {' '.join(on_site_not_fed)}")
     if vopple_path:
         print(f"Vopple copy: {len(rows)} complete, {len(vat_held)} left out until their VAT basis is settled "
-              f"({' '.join(vat_held) or 'none'}), {len(rows) - len(vat_held)} published.")
+              f"({' '.join(vat_held) or 'none'}), {len(rows) - len(vat_held)} published; "
+              f"{sum(1 for r in rows if not r['_vat_unclear'] and r['_date_first_on_lot'])} carry a listing date.")
 
 
 if __name__ == "__main__":
